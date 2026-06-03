@@ -34,14 +34,22 @@ API runs at `http://localhost:3000`. Health check: `GET /health`.
 
 Repo: [github.com/PavanKranthi/SK_Services](https://github.com/PavanKranthi/SK_Services)
 
+**Important:** Railway must deploy the **API only**, not the Android app. Either approach works:
+
+### Option A (recommended): Root Directory
+
 1. [Railway](https://railway.app) -> **New Project** -> **Deploy from GitHub repo** -> select `SK_Services`.
-2. Service settings -> **Root Directory** = `backend`.
-3. **Variables** (Settings -> Variables):
-   - `DATABASE_URL` = Supabase connection URI (same as local `.env`)
+2. Service **Settings** -> **Root Directory** = `backend` (not repo root).
+3. **Variables**:
+   - `DATABASE_URL` = Supabase connection URI
    - `JWT_SECRET` = long random string
-   - `PORT` is set by Railway automatically; do not hardcode.
-4. **Settings -> Networking** -> **Generate Domain** -> copy the HTTPS URL (e.g. `https://sk-services-production.up.railway.app`).
-5. Verify in browser: `GET https://YOUR-DOMAIN/health`
+4. **Networking** -> **Generate Domain** -> test `GET https://YOUR-DOMAIN/health`
+
+### Option B: Repo root (Dockerfile)
+
+If Root Directory is left blank, the repo root `railway.toml` + `Dockerfile` build **only** `backend/` via Docker (avoids Gradle/Android build errors).
+
+Same variables as Option A.
 
 ## 4. Android app configuration
 

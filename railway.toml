@@ -1,0 +1,9 @@
+# Repo root config: deploy the Node API only (ignore Android Gradle at repo root).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["backend/**"]
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
