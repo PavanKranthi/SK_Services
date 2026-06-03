@@ -59,6 +59,10 @@ authRouter.post("/customer/login", safeAuth(async (req, res) => {
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }
+  if (row.is_active === false) {
+    res.status(403).json({ error: "Account disabled" });
+    return;
+  }
   const token = signToken({ role: "customer", sub: row.id, email: row.email });
   res.json({ token, user: mapCustomer(row) });
 }));
@@ -106,7 +110,11 @@ authRouter.post("/admin/login", safeAuth(async (req, res) => {
   );
   const row = result.rows[0];
   if (!row || !(await bcrypt.compare(password, row.password_hash))) {
-    res.status(401).json({ error: "Invalid admin credentials" });
+    res.status(401).json({ error: "Invalid email or password" });
+    return;
+  }
+  if (row.is_active === false) {
+    res.status(403).json({ error: "Account disabled" });
     return;
   }
   const token = signToken({ role: "admin", sub: row.id, email: row.email });
@@ -126,7 +134,11 @@ authRouter.post("/technician/login", safeAuth(async (req, res) => {
   );
   const row = result.rows[0];
   if (!row || !(await bcrypt.compare(password, row.password_hash))) {
-    res.status(401).json({ error: "Invalid technician credentials" });
+    res.status(401).json({ error: "Invalid email or password" });
+    return;
+  }
+  if (row.is_active === false) {
+    res.status(403).json({ error: "Account disabled" });
     return;
   }
   const token = signToken({ role: "technician", sub: row.id, email: row.email });

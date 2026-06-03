@@ -51,7 +51,35 @@ If Root Directory is left blank, the repo root `railway.toml` + `Dockerfile` bui
 
 Same variables as Option A.
 
-## 4. Android app configuration
+## 4. Admin web portal (browser)
+
+After deploy and migrate, open:
+
+```text
+https://YOUR-RAILWAY-DOMAIN/admin
+```
+
+Sign in with an **admin** account (same credentials as the mobile admin login).
+
+### What you can do
+
+| Section | Actions |
+|---------|---------|
+| **Dashboard** | Counts of admins, customers, technicians; booking activity; revenue from completed jobs; recent bookings |
+| **Users** | Create user (any role), reset password, enable/disable, delete |
+
+### One-time DB update (existing databases)
+
+If the project was created before user management, run migrations:
+
+```bash
+cd backend
+npm run db:migrate
+```
+
+Or apply `src/db/migrations/002_user_management.sql` in the Supabase SQL editor.
+
+## 5. Android app configuration
 
 In project root `satyam_services/.env`:
 
@@ -65,7 +93,7 @@ For Android emulator against local API:
 API_BASE_URL=http://10.0.2.2:3000
 ```
 
-## 5. Build test APK
+## 6. Build test APK
 
 Requires **JDK 17+** (Gradle 9.3 + Android Gradle Plugin 9.1).
 

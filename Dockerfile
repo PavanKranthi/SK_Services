@@ -12,5 +12,6 @@ ENV NODE_ENV=production
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
+COPY backend/public ./public
 EXPOSE 3000
 CMD ["npm", "start"]

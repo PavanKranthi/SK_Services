@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS admins (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS customers (
   email TEXT NOT NULL UNIQUE,
   phone TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS technicians (
   password_hash TEXT NOT NULL,
   services TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'Active',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
