@@ -1,0 +1,6 @@
+{
+  "name": "SK Services",
+  "description": "Mobile service booking and admin tracking app for local home appliance care in Visakhapatnam, India.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
