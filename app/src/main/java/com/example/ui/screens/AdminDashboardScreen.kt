@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -140,7 +142,8 @@ fun AdminDashboardScreen(
             )
             3 -> TechnicianManagementView(
                 viewModel = viewModel,
-                technicians = technicians
+                technicians = technicians,
+                allServices = allServices
             )
         }
     }
@@ -812,10 +815,132 @@ fun ServiceConfiguratorView(
     }
 }
 
+private fun ApplianceService.displayLabel(): String = "$name $type"
+
+private fun parseTechnicianServiceLabels(csv: String): Set<String> =
+    csv.split(",")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+private fun joinTechnicianServiceLabels(labels: Set<String>): String =
+    labels.sorted().joinToString(",")
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun TechnicianServicesSelector(
+    allServices: List<ApplianceService>,
+    selectedLabels: Set<String>,
+    onSelectionChange: (Set<String>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val serviceOptions = remember(allServices) {
+        allServices
+            .filter { it.isActive }
+            .map { it.displayLabel() }
+            .distinct()
+            .sorted()
+    }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Assigned services",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        if (selectedLabels.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                selectedLabels.sorted().forEach { label ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onSelectionChange(selectedLabels - label) },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Remove $label",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "No services selected yet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        ExposedDropdownMenuBox(
+            expanded = menuExpanded,
+            onExpandedChange = { menuExpanded = it }
+        ) {
+            OutlinedTextField(
+                value = if (selectedLabels.isEmpty()) {
+                    "Tap to select services"
+                } else {
+                    "${selectedLabels.size} service(s) selected"
+                },
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Add services") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuExpanded) },
+                modifier = Modifier
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                modifier = Modifier.heightIn(max = 280.dp)
+            ) {
+                if (serviceOptions.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("No active services configured") },
+                        onClick = {},
+                        enabled = false
+                    )
+                } else {
+                    serviceOptions.forEach { label ->
+                        val checked = label in selectedLabels
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = null
+                                    )
+                                    Text(label, style = MaterialTheme.typography.bodySmall)
+                                }
+                            },
+                            onClick = {
+                                onSelectionChange(
+                                    if (checked) selectedLabels - label else selectedLabels + label
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun TechnicianManagementView(
     viewModel: AppViewModel,
-    technicians: List<Technician>
+    technicians: List<Technician>,
+    allServices: List<ApplianceService>
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -841,8 +966,8 @@ fun TechnicianManagementView(
             }
         } else {
             items(technicians) { technician ->
-                var editableServices by remember(technician.id, technician.services) {
-                    mutableStateOf(technician.services)
+                var selectedLabels by remember(technician.id, technician.services) {
+                    mutableStateOf(parseTechnicianServiceLabels(technician.services))
                 }
 
                 Card(
@@ -857,18 +982,20 @@ fun TechnicianManagementView(
                         Text(technician.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        OutlinedTextField(
-                            value = editableServices,
-                            onValueChange = { editableServices = it },
-                            label = { Text("Services (comma-separated)") },
-                            supportingText = { Text("Example: AC Maintenance/Service, TV Screen/Backlight Repair") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("technician_services_input_${technician.id}")
+                        TechnicianServicesSelector(
+                            allServices = allServices,
+                            selectedLabels = selectedLabels,
+                            onSelectionChange = { selectedLabels = it },
+                            modifier = Modifier.testTag("technician_services_selector_${technician.id}")
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { viewModel.updateTechnicianServices(technician, editableServices) },
+                            onClick = {
+                                viewModel.updateTechnicianServices(
+                                    technician,
+                                    joinTechnicianServiceLabels(selectedLabels)
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("technician_services_save_${technician.id}")

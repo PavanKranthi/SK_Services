@@ -118,13 +118,13 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    var loginEmail by remember { mutableStateOf("pavan@gmail.com") } // Pre-populated for quick tester sign-in
-    var loginPassword by remember { mutableStateOf("Password123") } // Pre-populated password corresponding to seed account
+    var loginEmail by remember { mutableStateOf("") }
+    var loginPassword by remember { mutableStateOf("") }
 
-    var adminEmail by remember { mutableStateOf("admin@gmail.com") }
-    var adminPassword by remember { mutableStateOf("admin") }
-    var technicianEmail by remember { mutableStateOf("ravi@satyamservices.com") }
-    var technicianPassword by remember { mutableStateOf("tech123") }
+    var adminEmail by remember { mutableStateOf("") }
+    var adminPassword by remember { mutableStateOf("") }
+    var technicianEmail by remember { mutableStateOf("") }
+    var technicianPassword by remember { mutableStateOf("") }
 
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
@@ -520,7 +520,7 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
                                     .fillMaxWidth()
                                     .testTag("portal_toggle_signup")
                             ) {
-                                Text("Create modern account and address setup")
+                                Text(stringResource(R.string.auth_signup_prompt))
                             }
                         }
                     }

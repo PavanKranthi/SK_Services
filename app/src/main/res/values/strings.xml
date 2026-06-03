@@ -4,4 +4,5 @@
     <string name="auth_error_network">Unable to reach the server. Check your internet and try again.</string>
     <string name="auth_error_required">Please fill in all required fields.</string>
     <string name="auth_success_admin">Signed in successfully.</string>
+    <string name="auth_signup_prompt">Don\'t have an account yet? Sign up!</string>
 </resources>

@@ -84,8 +84,11 @@ class ExampleRobolectricTest {
 
   @Test
   fun `login as Admin and render AdminDashboardScreen`() {
-    // Switch to Admin tab (fields are pre-filled with admin@gmail.com / admin)
     composeTestRule.onNodeWithTag("portal_tab_admin").assertExists().performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("admin_email_input").assertExists().performTextInput("admin@gmail.com")
+    composeTestRule.onNodeWithTag("admin_password_input").assertExists().performTextInput("admin")
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithTag("admin_login_submit").assertExists().performClick()
