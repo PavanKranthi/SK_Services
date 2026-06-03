@@ -26,6 +26,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android platform for Robolectric
+        run: sdkmanager "platforms;android-34"
+
       - name: Create debug keystore
         run: |
           keytool -genkeypair -v \
