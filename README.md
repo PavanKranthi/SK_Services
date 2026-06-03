@@ -1,21 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# SK Services
 
-# Run and deploy your AI Studio app
+Appliance service booking app (Android) with Express API and Supabase Postgres.
 
-This contains everything you need to run your app locally.
+## Structure
 
-View your app in AI Studio: https://ai.studio/apps/8d7a8811-f7a0-4861-a50c-66d112183b57
+| Folder | Purpose |
+|--------|---------|
+| `app/` | Android app (Kotlin + Jetpack Compose) |
+| `backend/` | Express REST API (deploy this folder to Railway) |
 
-## Run Locally
+## Quick start
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+### Backend (local)
 
+```bash
+cd backend
+cp .env.example .env   # add DATABASE_URL + JWT_SECRET
+npm install
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
+See [backend/README.md](backend/README.md) for Supabase setup and Railway deploy.
+
+### Android APK
+
+1. Set `API_BASE_URL` in `.env` to your hosted API URL (HTTPS).
+2. Open project in Android Studio (JDK 17+).
+3. **Build → Build APK(s)** → `app/build/outputs/apk/debug/app-debug.apk`
+
+## Default test accounts (after seed)
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@gmail.com | admin |
+| Customer | pavan@gmail.com | Password123 |
+| Technician | ravi@satyamservices.com | tech123 |
