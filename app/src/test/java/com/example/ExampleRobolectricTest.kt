@@ -100,7 +100,7 @@ class ExampleRobolectricTest {
 
     composeTestRule.onNodeWithTag("admin_login_submit").assertExists().performClick()
     composeTestRule.waitForIdle()
-    mainDispatcherRule.dispatcher.advanceUntilIdle()
+    mainDispatcherRule.advanceUntilIdle()
     composeTestRule.waitForIdle()
 
     composeTestRule.waitUntil(timeoutMillis = 10000) {
