@@ -43,7 +43,9 @@ jobs:
           cat .env
 
       - name: Build debug APK
-        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon -x test
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --no-configuration-cache -x test
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.configuration-cache=false"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

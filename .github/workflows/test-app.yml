@@ -45,4 +45,6 @@ jobs:
           echo "GEMINI_API_KEY=unused" >> .env
 
       - name: Run Robolectric UI tests
-        run: chmod +x gradlew && ./gradlew testDebugUnitTest --no-daemon
+        run: chmod +x gradlew && ./gradlew testDebugUnitTest --no-daemon --no-configuration-cache
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.configuration-cache=false"
