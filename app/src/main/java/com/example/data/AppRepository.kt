@@ -15,6 +15,8 @@ import com.example.data.remote.toUserAccount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import java.io.IOException
 
 class AppRepository(
     private val db: AppDatabase,
@@ -28,6 +30,17 @@ class AppRepository(
     val addressDao = db.addressDao()
 
     val useCloud: Boolean get() = remote.enabled
+
+    private fun mapAuthException(e: Exception): AuthResult =
+        when (e) {
+            is HttpException ->
+                when (e.code()) {
+                    401, 403 -> AuthResult.InvalidCredentials
+                    else -> AuthResult.NetworkError
+                }
+            is IOException -> AuthResult.NetworkError
+            else -> AuthResult.NetworkError
+        }
 
     val allServices: Flow<List<ApplianceService>> = serviceDao.getAllServicesFlow()
     val activeServices: Flow<List<ApplianceService>> = serviceDao.getActiveServicesFlow()
@@ -102,21 +115,27 @@ class AppRepository(
         }
     }
 
-    suspend fun loginUser(email: String, password: String): UserAccount? = withContext(Dispatchers.IO) {
-        if (useCloud) {
-            try {
-                val res = remote.loginCustomer(email, password)
-                tokenStore.token = res.token
-                val user = res.user!!.toUserAccount()
-                userDao.signUpUser(user.copy(password = password))
-                syncFromCloud("Customer")
-                return@withContext user
-            } catch (_: Exception) {
-                return@withContext null
+    suspend fun loginUser(email: String, password: String): Pair<AuthResult, UserAccount?> =
+        withContext(Dispatchers.IO) {
+            if (useCloud) {
+                try {
+                    val res = remote.loginCustomer(email, password)
+                    tokenStore.token = res.token
+                    val user = res.user!!.toUserAccount()
+                    userDao.signUpUser(user.copy(password = password))
+                    try {
+                        syncFromCloud("Customer")
+                    } catch (_: Exception) {
+                        // Login succeeded; sync can retry later
+                    }
+                    return@withContext AuthResult.Success to user
+                } catch (e: Exception) {
+                    return@withContext mapAuthException(e) to null
+                }
             }
+            val user = userDao.loginUser(email, password)
+            if (user != null) AuthResult.Success to user else AuthResult.InvalidCredentials to null
         }
-        userDao.loginUser(email, password)
-    }
 
     suspend fun getUserByPhone(phone: String): UserAccount? = withContext(Dispatchers.IO) {
         userDao.getUserByPhone(phone)
@@ -150,38 +169,50 @@ class AppRepository(
         userDao.signUpUser(user)
     }
 
-    suspend fun loginAdmin(email: String, password: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun loginAdmin(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         if (useCloud) {
             try {
                 val res = remote.loginAdmin(email, password)
                 tokenStore.token = res.token
-                syncFromCloud("Admin")
-                return@withContext true
-            } catch (_: Exception) {
-                return@withContext false
+                try {
+                    syncFromCloud("Admin")
+                } catch (_: Exception) {
+                    // Login succeeded; sync can retry later
+                }
+                return@withContext AuthResult.Success
+            } catch (e: Exception) {
+                return@withContext mapAuthException(e)
             }
         }
         val normalizedEmail = email.trim().lowercase()
         val normalizedPassword = password.trim()
-        (normalizedEmail == "admin@gmail.com" || normalizedEmail == "admin") &&
-            (normalizedPassword == "admin" || normalizedPassword == "admin123")
+        val ok =
+            (normalizedEmail == "admin@gmail.com" || normalizedEmail == "admin") &&
+                (normalizedPassword == "admin" || normalizedPassword == "admin123")
+        if (ok) AuthResult.Success else AuthResult.InvalidCredentials
     }
 
-    suspend fun loginTechnician(email: String, password: String): Technician? = withContext(Dispatchers.IO) {
-        if (useCloud) {
-            try {
-                val res = remote.loginTechnician(email, password)
-                tokenStore.token = res.token
-                val tech = res.technician!!.toTechnician()
-                technicianDao.insertTechnician(tech)
-                syncFromCloud("Technician")
-                return@withContext tech
-            } catch (_: Exception) {
-                return@withContext null
+    suspend fun loginTechnician(email: String, password: String): Pair<AuthResult, Technician?> =
+        withContext(Dispatchers.IO) {
+            if (useCloud) {
+                try {
+                    val res = remote.loginTechnician(email, password)
+                    tokenStore.token = res.token
+                    val tech = res.technician!!.toTechnician()
+                    technicianDao.insertTechnician(tech)
+                    try {
+                        syncFromCloud("Technician")
+                    } catch (_: Exception) {
+                        // Login succeeded; sync can retry later
+                    }
+                    return@withContext AuthResult.Success to tech
+                } catch (e: Exception) {
+                    return@withContext mapAuthException(e) to null
+                }
             }
+            val tech = technicianDao.loginTechnician(email, password)
+            if (tech != null) AuthResult.Success to tech else AuthResult.InvalidCredentials to null
         }
-        technicianDao.loginTechnician(email, password)
-    }
 
     suspend fun updateUser(user: UserAccount) = withContext(Dispatchers.IO) {
         userDao.updateUser(user)

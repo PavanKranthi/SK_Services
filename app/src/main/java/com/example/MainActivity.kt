@@ -24,8 +24,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import com.example.data.AppDatabase
@@ -318,13 +320,14 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
                     Button(
                         onClick = {
                             if (adminEmail.isBlank() || adminPassword.isBlank()) {
-                                errorMessage = "Username/Email and Password are required."
+                                errorMessage = stringResource(R.string.auth_error_required)
                             } else {
-                                viewModel.loginAdmin(adminEmail, adminPassword) { success ->
+                                viewModel.loginAdmin(adminEmail, adminPassword) { success, message ->
                                     if (success) {
-                                        successMessage = "Authorized dashboard access."
+                                        successMessage = stringResource(R.string.auth_success_admin)
+                                        errorMessage = ""
                                     } else {
-                                        errorMessage = "Invalid Admin credentials. Use 'admin@gmail.com' & 'admin'"
+                                        errorMessage = message
                                     }
                                 }
                             }

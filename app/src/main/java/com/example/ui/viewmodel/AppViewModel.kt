@@ -72,21 +72,23 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     // Authentication Actions
     fun loginCustomer(email: String, password: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val user = repository.loginUser(email, password)
-            if (user != null) {
-                _loggedInUser.value = user
-                _customerName.value = user.name
-                _customerPhone.value = user.phone
-                _currentRole.value = "Customer"
-                _isAdminLoggedIn.value = false
-                
-                // Auto-select their default address for bookings
-                repository.getAddressesForPhone(user.phone).firstOrNull()?.find { it.isDefault }?.let {
-                    _bookingAddress.value = it
+            val (result, user) = repository.loginUser(email, password)
+            when (result) {
+                AuthResult.Success -> if (user != null) {
+                    _loggedInUser.value = user
+                    _customerName.value = user.name
+                    _customerPhone.value = user.phone
+                    _currentRole.value = "Customer"
+                    _isAdminLoggedIn.value = false
+                    repository.getAddressesForPhone(user.phone).firstOrNull()?.find { it.isDefault }?.let {
+                        _bookingAddress.value = it
+                    }
+                    onResult(true, "Successfully logged in as ${user.name}")
+                } else {
+                    onResult(false, authErrorMessage(AuthResult.NetworkError))
                 }
-                onResult(true, "Successfully logged in as ${user.name}")
-            } else {
-                onResult(false, "Invalid email or password")
+                AuthResult.InvalidCredentials -> onResult(false, authErrorMessage(AuthResult.InvalidCredentials))
+                AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
             }
         }
     }
@@ -128,32 +130,45 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         }
     }
 
-    fun loginAdmin(email: String, codeOrPassword: String, onResult: (Boolean) -> Unit) {
+    fun loginAdmin(email: String, codeOrPassword: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val success = repository.loginAdmin(email.trim(), codeOrPassword.trim())
-            if (success) {
-                _isAdminLoggedIn.value = true
-                _loggedInUser.value = null
-                _loggedInTechnician.value = null
-                _currentRole.value = "Admin"
+            when (repository.loginAdmin(email.trim(), codeOrPassword.trim())) {
+                AuthResult.Success -> {
+                    _isAdminLoggedIn.value = true
+                    _loggedInUser.value = null
+                    _loggedInTechnician.value = null
+                    _currentRole.value = "Admin"
+                    onResult(true, "")
+                }
+                AuthResult.InvalidCredentials -> onResult(false, authErrorMessage(AuthResult.InvalidCredentials))
+                AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
             }
-            onResult(success)
         }
     }
 
     fun loginTechnician(email: String, password: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val technician = repository.loginTechnician(email.trim(), password.trim())
-            if (technician != null) {
-                _loggedInTechnician.value = technician
-                _loggedInUser.value = null
-                _isAdminLoggedIn.value = false
-                _currentRole.value = "Technician"
-                onResult(true, "Welcome ${technician.name}")
-            } else {
-                onResult(false, "Invalid technician credentials")
+            val (result, technician) = repository.loginTechnician(email.trim(), password.trim())
+            when (result) {
+                AuthResult.Success -> if (technician != null) {
+                    _loggedInTechnician.value = technician
+                    _loggedInUser.value = null
+                    _isAdminLoggedIn.value = false
+                    _currentRole.value = "Technician"
+                    onResult(true, "Welcome ${technician.name}")
+                } else {
+                    onResult(false, authErrorMessage(AuthResult.NetworkError))
+                }
+                AuthResult.InvalidCredentials -> onResult(false, authErrorMessage(AuthResult.InvalidCredentials))
+                AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
             }
         }
+    }
+
+    private fun authErrorMessage(result: AuthResult): String = when (result) {
+        AuthResult.InvalidCredentials -> "Invalid email or password. Please try again."
+        AuthResult.NetworkError -> "Unable to reach the server. Check your internet and try again."
+        AuthResult.Success -> ""
     }
 
     fun logout() {

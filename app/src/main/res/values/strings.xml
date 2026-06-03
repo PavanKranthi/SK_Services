@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">SK Services</string>
+    <string name="auth_error_invalid">Invalid email or password. Please try again.</string>
+    <string name="auth_error_network">Unable to reach the server. Check your internet and try again.</string>
+    <string name="auth_error_required">Please fill in all required fields.</string>
+    <string name="auth_success_admin">Signed in successfully.</string>
 </resources>

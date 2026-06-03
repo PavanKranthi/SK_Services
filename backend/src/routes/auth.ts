@@ -5,6 +5,25 @@ import { signToken } from "../middleware/auth.js";
 
 export const authRouter = Router();
 
+type AuthedHandler = (
+  req: import("express").Request,
+  res: import("express").Response
+) => Promise<void>;
+
+function safeAuth(handler: AuthedHandler) {
+  return async (
+    req: import("express").Request,
+    res: import("express").Response
+  ) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      console.error("Auth route error:", err);
+      res.status(503).json({ error: "Service temporarily unavailable" });
+    }
+  };
+}
+
 function mapCustomer(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -25,7 +44,7 @@ function mapTechnician(row: Record<string, unknown>) {
   };
 }
 
-authRouter.post("/customer/login", async (req, res) => {
+authRouter.post("/customer/login", safeAuth(async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
     res.status(400).json({ error: "Email and password required" });
@@ -42,9 +61,9 @@ authRouter.post("/customer/login", async (req, res) => {
   }
   const token = signToken({ role: "customer", sub: row.id, email: row.email });
   res.json({ token, user: mapCustomer(row) });
-});
+}));
 
-authRouter.post("/customer/register", async (req, res) => {
+authRouter.post("/customer/register", safeAuth(async (req, res) => {
   const { name, email, phone, password } = req.body as {
     name?: string;
     email?: string;
@@ -72,9 +91,9 @@ authRouter.post("/customer/register", async (req, res) => {
   const row = inserted.rows[0];
   const token = signToken({ role: "customer", sub: row.id, email: row.email });
   res.status(201).json({ token, user: mapCustomer(row) });
-});
+}));
 
-authRouter.post("/admin/login", async (req, res) => {
+authRouter.post("/admin/login", safeAuth(async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
     res.status(400).json({ error: "Email and password required" });
@@ -92,9 +111,9 @@ authRouter.post("/admin/login", async (req, res) => {
   }
   const token = signToken({ role: "admin", sub: row.id, email: row.email });
   res.json({ token, admin: { id: row.id, email: row.email } });
-});
+}));
 
-authRouter.post("/technician/login", async (req, res) => {
+authRouter.post("/technician/login", safeAuth(async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
     res.status(400).json({ error: "Email and password required" });
@@ -112,4 +131,4 @@ authRouter.post("/technician/login", async (req, res) => {
   }
   const token = signToken({ role: "technician", sub: row.id, email: row.email });
   res.json({ token, technician: mapTechnician(row) });
-});
+}));

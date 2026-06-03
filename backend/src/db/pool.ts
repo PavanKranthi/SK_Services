@@ -34,7 +34,19 @@ const needsSsl =
   connectionString?.includes("supabase.com") ||
   connectionString?.includes("supabase.co");
 
+/** Supabase transaction pooler (port 6543) needs pgbouncer mode for node-pg. */
+function resolveConnectionString(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.includes(":6543") && !url.includes("pgbouncer=")) {
+    return url.includes("?") ? `${url}&pgbouncer=true` : `${url}?pgbouncer=true`;
+  }
+  return url;
+}
+
 export const pool = new pg.Pool({
-  connectionString,
+  connectionString: resolveConnectionString(connectionString),
   ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+  connectionTimeoutMillis: 15000,
+  idleTimeoutMillis: 30000,
+  max: 10,
 });

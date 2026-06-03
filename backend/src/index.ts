@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { pool } from "./db/pool.js";
 import { authRouter } from "./routes/auth.js";
 import { bookingsRouter } from "./routes/bookings.js";
 import { servicesRouter } from "./routes/services.js";
@@ -18,6 +19,20 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "sk-services-api" });
+});
+
+app.get("/health/db", async (_req, res) => {
+  if (!process.env.DATABASE_URL?.trim()) {
+    res.status(503).json({ ok: false, database: "DATABASE_URL not configured" });
+    return;
+  }
+  try {
+    await pool.query("SELECT 1");
+    res.json({ ok: true, database: "connected" });
+  } catch (err) {
+    console.error("Database health check failed:", err);
+    res.status(503).json({ ok: false, database: "disconnected" });
+  }
 });
 
 app.use("/auth", authRouter);
