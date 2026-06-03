@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
@@ -21,11 +23,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExampleRobolectricTest {
 
-  @get:Rule
+  @get:Rule(order = 0)
+  val mainDispatcherRule = MainDispatcherRule()
+
+  @get:Rule(order = 1)
   val composeTestRule = createAndroidComposeRule<MainActivity>()
 
   @Before
@@ -67,6 +73,8 @@ class ExampleRobolectricTest {
       // Complete sign up and login
       composeTestRule.onNodeWithTag("signup_submit").assertExists().performScrollTo().performClick()
       composeTestRule.waitForIdle()
+      mainDispatcherRule.dispatcher.advanceUntilIdle()
+      composeTestRule.waitForIdle()
 
       // Wait until the registration completes and UI updates to CustomerBookingScreen
       composeTestRule.waitUntil(timeoutMillis = 5000) {
@@ -92,8 +100,10 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
 
     composeTestRule.onNodeWithTag("admin_login_submit").assertExists().performClick()
+    composeTestRule.waitForIdle()
+    mainDispatcherRule.dispatcher.advanceUntilIdle()
+    composeTestRule.waitForIdle()
 
-    // loginAdmin runs on viewModelScope; wait for navigation to Admin dashboard
     composeTestRule.waitUntil(timeoutMillis = 10000) {
       composeTestRule.onAllNodesWithTag("admin_tab_stats").fetchSemanticsNodes().isNotEmpty()
     }
