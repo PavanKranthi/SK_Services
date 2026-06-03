@@ -129,6 +129,9 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
 
+    val authErrorRequired = stringResource(R.string.auth_error_required)
+    val authSuccessAdmin = stringResource(R.string.auth_success_admin)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -320,11 +323,11 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
                     Button(
                         onClick = {
                             if (adminEmail.isBlank() || adminPassword.isBlank()) {
-                                errorMessage = stringResource(R.string.auth_error_required)
+                                errorMessage = authErrorRequired
                             } else {
                                 viewModel.loginAdmin(adminEmail, adminPassword) { success, message ->
                                     if (success) {
-                                        successMessage = stringResource(R.string.auth_success_admin)
+                                        successMessage = authSuccessAdmin
                                         errorMessage = ""
                                     } else {
                                         errorMessage = message
