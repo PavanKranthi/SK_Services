@@ -21,4 +21,9 @@ class MainDispatcherRule(
     override fun finished(description: Description) {
         Dispatchers.resetMain()
     }
+
+    /** Runs all coroutines scheduled on the test main dispatcher (ViewModel scope). */
+    fun advanceUntilIdle() {
+        (dispatcher as StandardTestDispatcher).scheduler.advanceUntilIdle()
+    }
 }

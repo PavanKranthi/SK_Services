@@ -12,7 +12,6 @@ import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceUntilIdle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
@@ -73,7 +72,7 @@ class ExampleRobolectricTest {
       // Complete sign up and login
       composeTestRule.onNodeWithTag("signup_submit").assertExists().performScrollTo().performClick()
       composeTestRule.waitForIdle()
-      mainDispatcherRule.dispatcher.advanceUntilIdle()
+      mainDispatcherRule.advanceUntilIdle()
       composeTestRule.waitForIdle()
 
       // Wait until the registration completes and UI updates to CustomerBookingScreen
