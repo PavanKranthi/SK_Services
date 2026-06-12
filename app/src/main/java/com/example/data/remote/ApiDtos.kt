@@ -2,6 +2,7 @@ package com.example.data.remote
 
 import com.example.data.ApplianceService
 import com.example.data.Booking
+import com.example.data.PortalUser
 import com.example.data.Technician
 import com.example.data.UserAccount
 import com.example.data.UserAddress
@@ -34,11 +35,73 @@ data class TechnicianDto(
 
 data class LoginRequest(val email: String, val password: String)
 
-data class RegisterRequest(
+data class PhoneLoginRequest(val phone: String, val password: String)
+
+data class RegisterInitRequest(
     val name: String,
-    val email: String,
     val phone: String,
     val password: String
+)
+
+data class RegisterInitResponse(
+    val message: String,
+    val phone: String,
+    val devOtp: String? = null
+)
+
+data class RegisterVerifyRequest(
+    val phone: String,
+    val firebaseIdToken: String
+)
+
+data class ResetPasswordInitRequest(val phone: String)
+
+data class ResetPasswordInitResponse(
+    val message: String,
+    val phone: String
+)
+
+data class ResetPasswordVerifyRequest(
+    val phone: String,
+    val firebaseIdToken: String,
+    val newPassword: String
+)
+
+data class ChangePasswordRequest(
+    val currentPassword: String,
+    val newPassword: String
+)
+
+data class MessageResponse(val message: String)
+
+data class PortalUsersResponse(val users: List<PortalUserDto>)
+
+data class PortalUserDto(
+    val id: Int,
+    val role: String,
+    val email: String,
+    val name: String? = null,
+    val phone: String? = null,
+    val services: String? = null,
+    val isActive: Boolean = true
+)
+
+data class CreatePortalUserRequest(
+    val role: String,
+    val email: String,
+    val password: String,
+    val name: String? = null,
+    val phone: String? = null,
+    val services: String? = null
+)
+
+data class UpdatePortalUserRequest(
+    val email: String? = null,
+    val password: String? = null,
+    val name: String? = null,
+    val phone: String? = null,
+    val services: String? = null,
+    val isActive: Boolean? = null
 )
 
 data class BookingDto(
@@ -164,6 +227,16 @@ fun BookingDto.toBooking() = Booking(
 )
 
 fun ServiceDto.toService() = ApplianceService(id = id, name = name, type = type, price = price, isActive = isActive)
+
+fun PortalUserDto.toPortalUser() = PortalUser(
+    id = id,
+    role = role,
+    email = email,
+    name = name.orEmpty(),
+    phone = phone.orEmpty(),
+    services = services.orEmpty(),
+    isActive = isActive
+)
 
 fun AddressDto.toAddress() = UserAddress(
     id = id,

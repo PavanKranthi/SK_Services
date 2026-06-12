@@ -143,8 +143,8 @@ interface TechnicianDao {
 
 @Dao
 interface UserDao {
-    @Query("SELECT * FROM users WHERE email = :email AND password = :password LIMIT 1")
-    suspend fun loginUser(email: String, password: String): UserAccount?
+    @Query("SELECT * FROM users WHERE phone = :phone AND password = :password LIMIT 1")
+    suspend fun loginUserByPhone(phone: String, password: String): UserAccount?
 
     @Query("SELECT * FROM users WHERE phone = :phone LIMIT 1")
     suspend fun getUserByPhone(phone: String): UserAccount?

@@ -92,13 +92,14 @@ fun AdminDashboardScreen(
         }
 
         // Toggle tabs for Admin Sections
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = activeAdminTab,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 6.dp)
                 .clip(RoundedCornerShape(12.dp)),
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            edgePadding = 0.dp
         ) {
             Tab(
                 selected = activeAdminTab == 0,
@@ -128,6 +129,13 @@ fun AdminDashboardScreen(
                 icon = { Icon(Icons.Default.Engineering, contentDescription = null, modifier = Modifier.size(20.dp)) },
                 modifier = Modifier.testTag("admin_tab_technicians")
             )
+            Tab(
+                selected = activeAdminTab == 4,
+                onClick = { activeAdminTab = 4 },
+                text = { Text("Users", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                icon = { Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                modifier = Modifier.testTag("admin_tab_users")
+            )
         }
 
         when (activeAdminTab) {
@@ -145,6 +153,7 @@ fun AdminDashboardScreen(
                 technicians = technicians,
                 allServices = allServices
             )
+            4 -> AdminUserManagementView(viewModel = viewModel)
         }
     }
 }

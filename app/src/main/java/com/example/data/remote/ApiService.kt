@@ -10,10 +10,22 @@ import retrofit2.http.Query
 
 interface ApiService {
     @POST("auth/customer/login")
-    suspend fun loginCustomer(@Body body: LoginRequest): AuthResponse
+    suspend fun loginCustomer(@Body body: PhoneLoginRequest): AuthResponse
 
-    @POST("auth/customer/register")
-    suspend fun registerCustomer(@Body body: RegisterRequest): AuthResponse
+    @POST("auth/customer/register/init")
+    suspend fun initCustomerRegister(@Body body: RegisterInitRequest): RegisterInitResponse
+
+    @POST("auth/customer/register/verify")
+    suspend fun verifyCustomerRegister(@Body body: RegisterVerifyRequest): AuthResponse
+
+    @POST("auth/customer/reset-password/init")
+    suspend fun initResetPassword(@Body body: ResetPasswordInitRequest): ResetPasswordInitResponse
+
+    @POST("auth/customer/reset-password/verify")
+    suspend fun verifyResetPassword(@Body body: ResetPasswordVerifyRequest): AuthResponse
+
+    @POST("auth/customer/change-password")
+    suspend fun changeCustomerPassword(@Body body: ChangePasswordRequest): MessageResponse
 
     @POST("auth/admin/login")
     suspend fun loginAdmin(@Body body: LoginRequest): AuthResponse
@@ -68,4 +80,20 @@ interface ApiService {
 
     @DELETE("addresses/{id}")
     suspend fun deleteAddress(@Path("id") id: Int)
+
+    @GET("users")
+    suspend fun getPortalUsers(): PortalUsersResponse
+
+    @POST("users")
+    suspend fun createPortalUser(@Body body: CreatePortalUserRequest): PortalUserDto
+
+    @PATCH("users/{role}/{id}")
+    suspend fun updatePortalUser(
+        @Path("role") role: String,
+        @Path("id") id: Int,
+        @Body body: UpdatePortalUserRequest
+    ): PortalUserDto
+
+    @DELETE("users/{role}/{id}")
+    suspend fun deletePortalUser(@Path("role") role: String, @Path("id") id: Int)
 }

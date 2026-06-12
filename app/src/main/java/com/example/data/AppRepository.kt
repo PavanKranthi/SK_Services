@@ -2,13 +2,16 @@ package com.example.data
 
 import com.example.data.remote.CreateAddressRequest
 import com.example.data.remote.CreateBookingRequest
+import com.example.data.remote.CreatePortalUserRequest
 import com.example.data.remote.CreateServiceRequest
 import com.example.data.remote.PatchBookingRequest
 import com.example.data.remote.PatchServiceRequest
 import com.example.data.remote.RemoteApiClient
 import com.example.data.remote.TokenStore
+import com.example.data.remote.UpdatePortalUserRequest
 import com.example.data.remote.toAddress
 import com.example.data.remote.toBooking
+import com.example.data.remote.toPortalUser
 import com.example.data.remote.toService
 import com.example.data.remote.toTechnician
 import com.example.data.remote.toUserAccount
@@ -18,11 +21,25 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
 
+/** Signup details held between OTP send and verify. */
+private data class PendingSignup(
+    val name: String,
+    val phone: String,
+    val password: String,
+    val offlineOtp: String? = null
+)
+
 class AppRepository(
     private val db: AppDatabase,
     private val tokenStore: TokenStore,
     private val remote: RemoteApiClient = RemoteApiClient(tokenStore)
 ) {
+    private var pendingSignup: PendingSignup? = null
+
+    companion object {
+        /** Fixed OTP used when the app runs without a cloud API (Room-only mode). */
+        const val OFFLINE_OTP = "123456"
+    }
     val serviceDao = db.serviceDao()
     val bookingDao = db.bookingDao()
     val technicianDao = db.technicianDao()
@@ -115,11 +132,13 @@ class AppRepository(
         }
     }
 
-    suspend fun loginUser(email: String, password: String): Pair<AuthResult, UserAccount?> =
+    suspend fun loginUser(phone: String, password: String): Pair<AuthResult, UserAccount?> =
         withContext(Dispatchers.IO) {
+            val normalized = normalizeIndianPhone(phone)
+            if (normalized == null) return@withContext AuthResult.InvalidCredentials to null
             if (useCloud) {
                 try {
-                    val res = remote.loginCustomer(email, password)
+                    val res = remote.loginCustomer(normalized, password)
                     tokenStore.token = res.token
                     val user = res.user!!.toUserAccount()
                     userDao.signUpUser(user.copy(password = password))
@@ -133,41 +152,124 @@ class AppRepository(
                     return@withContext mapAuthException(e) to null
                 }
             }
-            val user = userDao.loginUser(email, password)
+            val user = userDao.loginUserByPhone(normalized, password)
             if (user != null) AuthResult.Success to user else AuthResult.InvalidCredentials to null
         }
+
+    /** Step 1 of signup: send OTP (or stage offline OTP). */
+    suspend fun initiateSignup(name: String, phone: String, password: String): Pair<AuthResult, String?> =
+        withContext(Dispatchers.IO) {
+            val normalized = normalizeIndianPhone(phone)
+                ?: return@withContext AuthResult.InvalidCredentials to "Enter a valid 10-digit Indian mobile number."
+            val existing = userDao.getUserByPhone(normalized)
+            if (existing != null) {
+                return@withContext AuthResult.InvalidCredentials to "Phone number is already associated with an account."
+            }
+            pendingSignup = PendingSignup(name.trim(), normalized, password)
+            if (useCloud) {
+                try {
+                    remote.initCustomerRegister(name.trim(), normalized, password)
+                    return@withContext AuthResult.Success to "OTP will be sent to +91 $normalized via Firebase."
+                } catch (e: HttpException) {
+                    pendingSignup = null
+                    val msg = e.response()?.errorBody()?.string()?.let { parseApiError(it) }
+                    return@withContext when (e.code()) {
+                        409 -> AuthResult.InvalidCredentials to (msg ?: "Phone already registered")
+                        else -> mapAuthException(e) to (msg ?: "Could not send OTP. Try again.")
+                    }
+                } catch (_: Exception) {
+                    pendingSignup = null
+                    return@withContext AuthResult.NetworkError to "Unable to reach the server."
+                }
+            }
+            pendingSignup = PendingSignup(name.trim(), normalized, password, OFFLINE_OTP)
+            AuthResult.Success to "OTP sent. Use $OFFLINE_OTP to verify (offline mode)."
+        }
+
+    /** Step 2 of signup: verify Firebase phone token and create the account. */
+    suspend fun verifySignupWithFirebase(phone: String, firebaseIdToken: String): Pair<AuthResult, UserAccount?> =
+        withContext(Dispatchers.IO) {
+            val normalized = normalizeIndianPhone(phone)
+                ?: return@withContext AuthResult.InvalidCredentials to null
+            if (useCloud) {
+                try {
+                    val res = remote.verifyCustomerRegister(normalized, firebaseIdToken)
+                    tokenStore.token = res.token
+                    val user = res.user!!.toUserAccount()
+                    val savedPassword = pendingSignup?.password.orEmpty()
+                    userDao.signUpUser(user.copy(password = savedPassword))
+                    seedDefaultAddress(user.phone)
+                    try {
+                        syncFromCloud("Customer")
+                    } catch (_: Exception) {
+                        // Account created; sync can retry later
+                    }
+                    pendingSignup = null
+                    return@withContext AuthResult.Success to user.copy(password = savedPassword)
+                } catch (e: HttpException) {
+                    return@withContext when (e.code()) {
+                        401, 400 -> AuthResult.InvalidCredentials to null
+                        else -> mapAuthException(e) to null
+                    }
+                } catch (_: Exception) {
+                    return@withContext AuthResult.NetworkError to null
+                }
+            }
+            val pending = pendingSignup
+            if (pending == null || pending.phone != normalized) {
+                return@withContext AuthResult.InvalidCredentials to null
+            }
+            // Offline dev: accept fixed OTP without Firebase.
+            if (firebaseIdToken != OFFLINE_OTP && firebaseIdToken != pending.offlineOtp) {
+                return@withContext AuthResult.InvalidCredentials to null
+            }
+            val email = "${normalized}@satyam.local"
+            val newUser = UserAccount(
+                name = pending.name,
+                email = email,
+                phone = normalized,
+                password = pending.password
+            )
+            val id = userDao.signUpUser(newUser)
+            if (id <= 0) return@withContext AuthResult.NetworkError to null
+            seedDefaultAddress(normalized)
+            pendingSignup = null
+            AuthResult.Success to newUser.copy(id = id.toInt())
+        }
+
+    private suspend fun seedDefaultAddress(phone: String) {
+        val seedAddr = UserAddress(
+            userPhone = phone,
+            addressLine1 = "Muralinagar, House #12-3, VSP",
+            addressLine2 = "Near Petrol Pump",
+            city = "Visakhapatnam",
+            district = "Visakhapatnam",
+            state = "Andhra Pradesh",
+            country = "India",
+            pinCode = "530007",
+            isDefault = true
+        )
+        insertAddress(seedAddr)
+    }
+
+    private fun normalizeIndianPhone(raw: String): String? {
+        val digits = raw.filter { it.isDigit() }
+        val normalized = when {
+            digits.length == 10 -> digits
+            digits.length == 12 && digits.startsWith("91") -> digits.drop(2)
+            else -> return null
+        }
+        return if (normalized.matches(Regex("^[6-9]\\d{9}$"))) normalized else null
+    }
+
+    private fun parseApiError(body: String): String? {
+        return Regex("\"error\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.getOrNull(1)
+    }
 
     suspend fun getUserByPhone(phone: String): UserAccount? = withContext(Dispatchers.IO) {
         userDao.getUserByPhone(phone)
     }
 
-    suspend fun signUpUser(user: UserAccount): Long = withContext(Dispatchers.IO) {
-        if (useCloud) {
-            try {
-                val res = remote.registerCustomer(user.name, user.email, user.phone, user.password)
-                tokenStore.token = res.token
-                val created = res.user!!.toUserAccount()
-                userDao.signUpUser(created.copy(password = user.password))
-                val seedAddr = UserAddress(
-                    userPhone = user.phone,
-                    addressLine1 = "Muralinagar, House #12-3, VSP",
-                    addressLine2 = "Near Petrol Pump",
-                    city = "Visakhapatnam",
-                    district = "Visakhapatnam",
-                    state = "Andhra Pradesh",
-                    country = "India",
-                    pinCode = "530007",
-                    isDefault = true
-                )
-                insertAddress(seedAddr)
-                syncFromCloud("Customer")
-                return@withContext created.id.toLong()
-            } catch (_: Exception) {
-                return@withContext -1L
-            }
-        }
-        userDao.signUpUser(user)
-    }
 
     suspend fun loginAdmin(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         if (useCloud) {
@@ -213,6 +315,87 @@ class AppRepository(
             val tech = technicianDao.loginTechnician(email, password)
             if (tech != null) AuthResult.Success to tech else AuthResult.InvalidCredentials to null
         }
+
+    suspend fun initiateResetPassword(phone: String): Pair<AuthResult, String?> =
+        withContext(Dispatchers.IO) {
+            val normalized = normalizeIndianPhone(phone)
+                ?: return@withContext AuthResult.InvalidCredentials to "Enter a valid 10-digit Indian mobile number."
+            if (!useCloud) {
+                val user = userDao.getUserByPhone(normalized)
+                if (user == null) {
+                    return@withContext AuthResult.InvalidCredentials to "No account found for this phone."
+                }
+                pendingSignup = PendingSignup(user.name, normalized, "", OFFLINE_OTP)
+                return@withContext AuthResult.Success to "Use OTP $OFFLINE_OTP (offline mode)."
+            }
+            try {
+                remote.initResetPassword(normalized)
+                AuthResult.Success to "OTP will be sent to +91 $normalized via Firebase."
+            } catch (e: HttpException) {
+                val msg = e.response()?.errorBody()?.string()?.let { parseApiError(it) }
+                when (e.code()) {
+                    404 -> AuthResult.InvalidCredentials to (msg ?: "No account found")
+                    else -> mapAuthException(e) to (msg ?: "Could not start reset.")
+                }
+            } catch (_: Exception) {
+                AuthResult.NetworkError to "Unable to reach the server."
+            }
+        }
+
+    suspend fun verifyResetPasswordWithFirebase(
+        phone: String,
+        firebaseIdToken: String,
+        newPassword: String
+    ): Pair<AuthResult, UserAccount?> = withContext(Dispatchers.IO) {
+        val normalized = normalizeIndianPhone(phone)
+            ?: return@withContext AuthResult.InvalidCredentials to null
+        if (useCloud) {
+            try {
+                val res = remote.verifyResetPassword(normalized, firebaseIdToken, newPassword)
+                tokenStore.token = res.token
+                val user = res.user!!.toUserAccount().copy(password = newPassword)
+                userDao.signUpUser(user)
+                pendingSignup = null
+                return@withContext AuthResult.Success to user
+            } catch (e: HttpException) {
+                return@withContext when (e.code()) {
+                    401, 400, 404 -> AuthResult.InvalidCredentials to null
+                    else -> mapAuthException(e) to null
+                }
+            } catch (_: Exception) {
+                return@withContext AuthResult.NetworkError to null
+            }
+        }
+        if (firebaseIdToken != OFFLINE_OTP) {
+            return@withContext AuthResult.InvalidCredentials to null
+        }
+        val user = userDao.getUserByPhone(normalized)
+            ?: return@withContext AuthResult.InvalidCredentials to null
+        val updated = user.copy(password = newPassword)
+        userDao.updateUser(updated)
+        pendingSignup = null
+        AuthResult.Success to updated
+    }
+
+    suspend fun changeCustomerPassword(
+        currentPassword: String,
+        newPassword: String
+    ): AuthResult = withContext(Dispatchers.IO) {
+        if (useCloud && !tokenStore.token.isNullOrBlank()) {
+            try {
+                remote.changeCustomerPassword(currentPassword, newPassword)
+                return@withContext AuthResult.Success
+            } catch (e: HttpException) {
+                return@withContext when (e.code()) {
+                    401 -> AuthResult.InvalidCredentials
+                    else -> AuthResult.NetworkError
+                }
+            } catch (_: Exception) {
+                return@withContext AuthResult.NetworkError
+            }
+        }
+        AuthResult.NetworkError
+    }
 
     suspend fun updateUser(user: UserAccount) = withContext(Dispatchers.IO) {
         userDao.updateUser(user)
@@ -454,6 +637,90 @@ class AppRepository(
                     isDefault = true
                 )
             )
+        }
+    }
+
+    /** Admin-only: list all portal accounts from the cloud API. */
+    suspend fun fetchPortalUsers(): Pair<AuthResult, List<PortalUser>> = withContext(Dispatchers.IO) {
+        if (!useCloud || tokenStore.token.isNullOrBlank()) {
+            return@withContext AuthResult.NetworkError to emptyList()
+        }
+        try {
+            val users = remote.getPortalUsers().users.map { it.toPortalUser() }
+            AuthResult.Success to users
+        } catch (e: Exception) {
+            mapAuthException(e) to emptyList()
+        }
+    }
+
+    suspend fun createPortalUser(
+        role: String,
+        email: String,
+        password: String,
+        name: String,
+        phone: String,
+        services: String
+    ): Pair<AuthResult, PortalUser?> = withContext(Dispatchers.IO) {
+        if (!useCloud || tokenStore.token.isNullOrBlank()) {
+            return@withContext AuthResult.NetworkError to null
+        }
+        try {
+            val created = remote.createPortalUser(
+                CreatePortalUserRequest(
+                    role = role.lowercase(),
+                    email = email.trim(),
+                    password = password,
+                    name = name.ifBlank { null },
+                    phone = phone.ifBlank { null },
+                    services = services.ifBlank { null }
+                )
+            )
+            AuthResult.Success to created.toPortalUser()
+        } catch (e: Exception) {
+            mapAuthException(e) to null
+        }
+    }
+
+    suspend fun updatePortalUser(
+        user: PortalUser,
+        email: String? = null,
+        password: String? = null,
+        name: String? = null,
+        phone: String? = null,
+        services: String? = null,
+        isActive: Boolean? = null
+    ): Pair<AuthResult, PortalUser?> = withContext(Dispatchers.IO) {
+        if (!useCloud || tokenStore.token.isNullOrBlank()) {
+            return@withContext AuthResult.NetworkError to null
+        }
+        try {
+            val updated = remote.updatePortalUser(
+                user.role.lowercase(),
+                user.id,
+                UpdatePortalUserRequest(
+                    email = email?.trim(),
+                    password = password?.trim()?.ifBlank { null },
+                    name = name?.trim()?.ifBlank { null },
+                    phone = phone?.trim()?.ifBlank { null },
+                    services = services,
+                    isActive = isActive
+                )
+            )
+            AuthResult.Success to updated.toPortalUser()
+        } catch (e: Exception) {
+            mapAuthException(e) to null
+        }
+    }
+
+    suspend fun deletePortalUser(user: PortalUser): AuthResult = withContext(Dispatchers.IO) {
+        if (!useCloud || tokenStore.token.isNullOrBlank()) {
+            return@withContext AuthResult.NetworkError
+        }
+        try {
+            remote.deletePortalUser(user.role.lowercase(), user.id)
+            AuthResult.Success
+        } catch (e: Exception) {
+            mapAuthException(e)
         }
     }
 }

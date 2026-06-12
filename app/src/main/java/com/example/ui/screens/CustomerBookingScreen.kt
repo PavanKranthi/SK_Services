@@ -22,8 +22,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.auth.FirebasePhoneAuthClient
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,8 +78,17 @@ fun CustomerBookingScreen(
     var editName by remember { mutableStateOf("") }
     var editPhone by remember { mutableStateOf("") }
     var editEmail by remember { mutableStateOf("") }
-    var editPassword by remember { mutableStateOf("") }
+    var editCurrentPassword by remember { mutableStateOf("") }
+    var editNewPassword by remember { mutableStateOf("") }
     var showForgotPasswordPrompt by remember { mutableStateOf(false) }
+    var resetOtp by remember { mutableStateOf("") }
+    var resetNewPassword by remember { mutableStateOf("") }
+    var resetStep by remember { mutableStateOf("confirm") }
+    var resetError by remember { mutableStateOf("") }
+    var isResetting by remember { mutableStateOf(false) }
+    val phoneAuth = remember { FirebasePhoneAuthClient() }
+    val activity = LocalContext.current as ComponentActivity
+    val scope = rememberCoroutineScope()
 
     // Address fields state
     var isAddingAddress by remember { mutableStateOf(false) }
@@ -95,7 +110,8 @@ fun CustomerBookingScreen(
             editName = it.name
             editPhone = it.phone
             editEmail = it.email
-            editPassword = it.password
+            editCurrentPassword = ""
+            editNewPassword = ""
         }
     }
 
@@ -995,11 +1011,18 @@ fun CustomerBookingScreen(
                                     modifier = Modifier.fillMaxWidth().testTag("edit_profile_email")
                                 )
                                 OutlinedTextField(
-                                    value = editPassword,
-                                    onValueChange = { editPassword = it },
-                                    label = { Text("Account Password") },
+                                    value = editCurrentPassword,
+                                    onValueChange = { editCurrentPassword = it },
+                                    label = { Text("Current password") },
                                     singleLine = true,
-                                    modifier = Modifier.fillMaxWidth().testTag("edit_profile_password")
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_profile_current_password")
+                                )
+                                OutlinedTextField(
+                                    value = editNewPassword,
+                                    onValueChange = { editNewPassword = it },
+                                    label = { Text("New password (optional)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_profile_new_password")
                                 )
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -1010,11 +1033,22 @@ fun CustomerBookingScreen(
                                 ) {
                                     Button(
                                         onClick = {
-                                            if (editName.isNotBlank() && editPhone.isNotBlank()) {
-                                                viewModel.updateCustomerDetails(editName, editPhone)
-                                                if (editPassword.isNotBlank()) {
-                                                    viewModel.changePassword(editPassword) { /* Done */ }
+                                            if (editName.isBlank() || editPhone.isBlank()) return@Button
+                                            viewModel.updateCustomerDetails(editName, editPhone)
+                                            if (editNewPassword.isNotBlank()) {
+                                                if (editCurrentPassword.isBlank()) {
+                                                    resetError = "Enter current password to change it."
+                                                    return@Button
                                                 }
+                                                viewModel.changePassword(editCurrentPassword, editNewPassword) { ok, msg ->
+                                                    if (!ok) resetError = msg
+                                                    else {
+                                                        editCurrentPassword = ""
+                                                        editNewPassword = ""
+                                                        showSettingsDialog = false
+                                                    }
+                                                }
+                                            } else {
                                                 showSettingsDialog = false
                                             }
                                         },
@@ -1024,11 +1058,20 @@ fun CustomerBookingScreen(
                                     }
 
                                     OutlinedButton(
-                                        onClick = { showForgotPasswordPrompt = true },
+                                        onClick = {
+                                            resetStep = "confirm"
+                                            resetOtp = ""
+                                            resetNewPassword = ""
+                                            resetError = ""
+                                            showForgotPasswordPrompt = true
+                                        },
                                         modifier = Modifier.weight(1f).testTag("btn_forgot_password")
                                     ) {
-                                        Text("Forgot pass?")
+                                        Text("Reset via OTP")
                                     }
+                                }
+                                if (resetError.isNotBlank() && settingsTab == "Profile") {
+                                    Text(resetError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                                 }
 
                                 Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -1245,17 +1288,108 @@ fun CustomerBookingScreen(
             )
         }
 
-        // Forgot password mock prompt
+        // Reset password via Firebase OTP (logged-in user)
         if (showForgotPasswordPrompt) {
             AlertDialog(
-                onDismissRequest = { showForgotPasswordPrompt = false },
-                title = { Text("Password Recovery") },
+                onDismissRequest = {
+                    if (!isResetting) showForgotPasswordPrompt = false
+                },
+                title = { Text("Reset password with OTP") },
                 text = {
-                    Text("A reset code simulation has been triggered! For local development safety, your current login password is: '${loggedInUser?.password ?: "Password123"}'")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (resetStep == "confirm") {
+                            Text("We will send an OTP to +91 ${loggedInUser?.phone ?: editPhone} to verify it is you.")
+                        } else {
+                            OutlinedTextField(
+                                value = resetOtp,
+                                onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) resetOtp = it },
+                                label = { Text("OTP") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = resetNewPassword,
+                                onValueChange = { resetNewPassword = it },
+                                label = { Text("New password") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        if (resetError.isNotBlank()) {
+                            Text(resetError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 },
                 confirmButton = {
-                    Button(onClick = { showForgotPasswordPrompt = false }) {
-                        Text("Acknowledge")
+                    Button(
+                        onClick = {
+                            val userPhone = loggedInUser?.phone ?: editPhone
+                            if (resetStep == "confirm") {
+                                isResetting = true
+                                viewModel.initiateResetPassword(userPhone) { ok, msg ->
+                                    if (!ok) {
+                                        resetError = msg
+                                        isResetting = false
+                                        return@initiateResetPassword
+                                    }
+                                    if (viewModel.requiresFirebasePhoneAuth()) {
+                                        scope.launch {
+                                            phoneAuth.sendOtp(activity, userPhone)
+                                                .onSuccess { resetStep = "otp" }
+                                                .onFailure { resetError = it.message ?: "Could not send OTP" }
+                                            isResetting = false
+                                        }
+                                    } else {
+                                        resetStep = "otp"
+                                        isResetting = false
+                                    }
+                                }
+                            } else {
+                                if (resetOtp.length != 6 || resetNewPassword.length < 6) {
+                                    resetError = "Enter 6-digit OTP and password (min 6 chars)."
+                                    return@Button
+                                }
+                                isResetting = true
+                                scope.launch {
+                                    try {
+                                        val token = if (viewModel.requiresFirebasePhoneAuth()) {
+                                            phoneAuth.verifyOtpAndGetIdToken(resetOtp).getOrElse {
+                                                resetError = it.message ?: "OTP failed"
+                                                return@launch
+                                            }
+                                        } else {
+                                            resetOtp
+                                        }
+                                        viewModel.verifyResetPasswordWithFirebase(userPhone, token, resetNewPassword) { ok, msg ->
+                                            if (ok) {
+                                                phoneAuth.signOutFirebase()
+                                                showForgotPasswordPrompt = false
+                                                showSettingsDialog = false
+                                            } else {
+                                                resetError = msg
+                                            }
+                                        }
+                                    } finally {
+                                        isResetting = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isResetting
+                    ) {
+                        Text(
+                            when {
+                                isResetting -> "Please wait..."
+                                resetStep == "confirm" -> "Send OTP"
+                                else -> "Update password"
+                            }
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showForgotPasswordPrompt = false }, enabled = !isResetting) {
+                        Text("Cancel")
                     }
                 }
             )

@@ -11,6 +11,9 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModel(private val repository: AppRepository) : ViewModel() {
 
+    /** True when OTP must go through Firebase + cloud API (not offline fixed OTP). */
+    fun requiresFirebasePhoneAuth(): Boolean = repository.useCloud
+
     init {
         // Automatically check and seed database with default services/technicians
         viewModelScope.launch {
@@ -70,63 +73,95 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     }
 
     // Authentication Actions
-    fun loginCustomer(email: String, password: String, onResult: (Boolean, String) -> Unit) {
+    fun loginCustomer(phone: String, password: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val (result, user) = repository.loginUser(email, password)
+            val (result, user) = repository.loginUser(phone, password)
             when (result) {
                 AuthResult.Success -> if (user != null) {
-                    _loggedInUser.value = user
-                    _customerName.value = user.name
-                    _customerPhone.value = user.phone
-                    _currentRole.value = "Customer"
-                    _isAdminLoggedIn.value = false
-                    repository.getAddressesForPhone(user.phone).firstOrNull()?.find { it.isDefault }?.let {
-                        _bookingAddress.value = it
-                    }
+                    completeCustomerLogin(user)
                     onResult(true, "Successfully logged in as ${user.name}")
                 } else {
                     onResult(false, authErrorMessage(AuthResult.NetworkError))
                 }
-                AuthResult.InvalidCredentials -> onResult(false, authErrorMessage(AuthResult.InvalidCredentials))
+                AuthResult.InvalidCredentials -> onResult(false, "Invalid phone or password. Please try again.")
                 AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
             }
         }
     }
 
-    fun registerCustomer(name: String, email: String, phone: String, password: String, onResult: (Boolean, String) -> Unit) {
+    /** Step 1 of signup: validate details and send OTP to the phone. */
+    fun initiateCustomerSignup(name: String, phone: String, password: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val existing = repository.getUserByPhone(phone)
-            if (existing != null) {
-                onResult(false, "Phone number is already associated with an account.")
+            if (name.isBlank() || phone.isBlank() || password.isBlank()) {
+                onResult(false, "Name, phone and password are required.")
                 return@launch
             }
-            val newUser = UserAccount(name = name, email = email, phone = phone, password = password)
-            val id = repository.signUpUser(newUser)
-            if (id > 0) {
-                _loggedInUser.value = newUser
-                _customerName.value = name
-                _customerPhone.value = phone
-                _currentRole.value = "Customer"
-                _isAdminLoggedIn.value = false
-                
-                // Creation and seeding of default home address
-                val seedAddr = UserAddress(
-                    userPhone = phone,
-                    addressLine1 = "Muralinagar, House #12-3, VSP",
-                    addressLine2 = "Near Petrol Pump",
-                    city = "Visakhapatnam",
-                    district = "Visakhapatnam",
-                    state = "Andhra Pradesh",
-                    country = "India",
-                    pinCode = "530007",
-                    isDefault = true
-                )
-                repository.insertAddress(seedAddr)
-                _bookingAddress.value = seedAddr
-                onResult(true, "Register successful for $name!")
-            } else {
-                onResult(false, "Sign up failed, database write error.")
+            val (result, message) = repository.initiateSignup(name, phone, password)
+            when (result) {
+                AuthResult.Success -> onResult(true, message.orEmpty())
+                AuthResult.InvalidCredentials -> onResult(false, message ?: "Could not start sign up.")
+                AuthResult.NetworkError -> onResult(false, message ?: authErrorMessage(AuthResult.NetworkError))
             }
+        }
+    }
+
+    /** Step 2 of signup: verify Firebase phone token and create the account. */
+    fun verifyCustomerSignupWithFirebase(phone: String, firebaseIdToken: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val (result, user) = repository.verifySignupWithFirebase(phone, firebaseIdToken)
+            when (result) {
+                AuthResult.Success -> if (user != null) {
+                    completeCustomerLogin(user)
+                    onResult(true, "Welcome, ${user.name}!")
+                } else {
+                    onResult(false, authErrorMessage(AuthResult.NetworkError))
+                }
+                AuthResult.InvalidCredentials -> onResult(false, "Phone verification failed. Please try again.")
+                AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
+            }
+        }
+    }
+
+    fun initiateResetPassword(phone: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val (result, message) = repository.initiateResetPassword(phone)
+            when (result) {
+                AuthResult.Success -> onResult(true, message.orEmpty())
+                AuthResult.InvalidCredentials -> onResult(false, message ?: "Could not start reset.")
+                AuthResult.NetworkError -> onResult(false, message ?: authErrorMessage(AuthResult.NetworkError))
+            }
+        }
+    }
+
+    fun verifyResetPasswordWithFirebase(
+        phone: String,
+        firebaseIdToken: String,
+        newPassword: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val (result, user) = repository.verifyResetPasswordWithFirebase(phone, firebaseIdToken, newPassword)
+            when (result) {
+                AuthResult.Success -> if (user != null) {
+                    completeCustomerLogin(user)
+                    onResult(true, "Password updated. Welcome back, ${user.name}!")
+                } else {
+                    onResult(false, authErrorMessage(AuthResult.NetworkError))
+                }
+                AuthResult.InvalidCredentials -> onResult(false, "Verification failed. Please try again.")
+                AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
+            }
+        }
+    }
+
+    private suspend fun completeCustomerLogin(user: UserAccount) {
+        _loggedInUser.value = user
+        _customerName.value = user.name
+        _customerPhone.value = user.phone
+        _currentRole.value = "Customer"
+        _isAdminLoggedIn.value = false
+        repository.getAddressesForPhone(user.phone).firstOrNull()?.find { it.isDefault }?.let {
+            _bookingAddress.value = it
         }
     }
 
@@ -166,7 +201,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     }
 
     private fun authErrorMessage(result: AuthResult): String = when (result) {
-        AuthResult.InvalidCredentials -> "Invalid email or password. Please try again."
+        AuthResult.InvalidCredentials -> "Invalid credentials. Please try again."
         AuthResult.NetworkError -> "Unable to reach the server. Check your internet and try again."
         AuthResult.Success -> ""
     }
@@ -182,16 +217,30 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         _bookingAddress.value = null
     }
 
-    fun changePassword(newPass: String, onResult: (Boolean) -> Unit) {
+    fun changePassword(currentPass: String, newPass: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val user = _loggedInUser.value
-            if (user != null) {
+            val user = _loggedInUser.value ?: run {
+                onResult(false, "Not logged in")
+                return@launch
+            }
+            if (repository.useCloud) {
+                when (repository.changeCustomerPassword(currentPass, newPass)) {
+                    AuthResult.Success -> {
+                        val updated = user.copy(password = newPass)
+                        repository.updateUser(updated)
+                        _loggedInUser.value = updated
+                        onResult(true, "Password changed")
+                    }
+                    AuthResult.InvalidCredentials -> onResult(false, "Current password is incorrect")
+                    AuthResult.NetworkError -> onResult(false, authErrorMessage(AuthResult.NetworkError))
+                }
+            } else if (user.password == currentPass) {
                 val updated = user.copy(password = newPass)
                 repository.updateUser(updated)
                 _loggedInUser.value = updated
-                onResult(true)
+                onResult(true, "Password changed")
             } else {
-                onResult(false)
+                onResult(false, "Current password is incorrect")
             }
         }
     }
@@ -499,6 +548,79 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         }
         viewModelScope.launch {
             repository.updateStatus(bookingId, nextStatus)
+        }
+    }
+
+    // 3. ADMIN USER MANAGEMENT (cloud API only)
+    private val _portalUsers = MutableStateFlow<List<PortalUser>>(emptyList())
+    val portalUsers: StateFlow<List<PortalUser>> = _portalUsers.asStateFlow()
+
+    fun refreshPortalUsers(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            val (result, users) = repository.fetchPortalUsers()
+            if (result == AuthResult.Success) {
+                _portalUsers.value = users
+                onResult(true, "")
+            } else {
+                onResult(false, authErrorMessage(result))
+            }
+        }
+    }
+
+    fun createPortalUser(
+        role: String,
+        email: String,
+        password: String,
+        name: String,
+        phone: String,
+        services: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val (result, created) = repository.createPortalUser(role, email, password, name, phone, services)
+            if (result == AuthResult.Success && created != null) {
+                _portalUsers.value = _portalUsers.value + created
+                onResult(true, "User created")
+            } else {
+                onResult(false, authErrorMessage(result))
+            }
+        }
+    }
+
+    fun updatePortalUser(
+        user: PortalUser,
+        email: String? = null,
+        password: String? = null,
+        name: String? = null,
+        phone: String? = null,
+        services: String? = null,
+        isActive: Boolean? = null,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val (result, updated) = repository.updatePortalUser(
+                user, email, password, name, phone, services, isActive
+            )
+            if (result == AuthResult.Success && updated != null) {
+                _portalUsers.value = _portalUsers.value.map { if (it.id == updated.id && it.role == updated.role) updated else it }
+                onResult(true, if (password != null) "Password reset" else "User updated")
+            } else {
+                onResult(false, authErrorMessage(result))
+            }
+        }
+    }
+
+    fun deletePortalUser(user: PortalUser, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            when (val result = repository.deletePortalUser(user)) {
+                AuthResult.Success -> {
+                    _portalUsers.value = _portalUsers.value.filter {
+                        it.id != user.id || it.role != user.role
+                    }
+                    onResult(true, "User deleted")
+                }
+                else -> onResult(false, authErrorMessage(result))
+            }
         }
     }
 }

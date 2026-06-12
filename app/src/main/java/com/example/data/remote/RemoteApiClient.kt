@@ -33,11 +33,23 @@ class RemoteApiClient(tokenStore: TokenStore) {
             .create(ApiService::class.java)
     }
 
-    suspend fun loginCustomer(email: String, password: String) =
-        api.loginCustomer(LoginRequest(email, password))
+    suspend fun loginCustomer(phone: String, password: String) =
+        api.loginCustomer(PhoneLoginRequest(phone, password))
 
-    suspend fun registerCustomer(name: String, email: String, phone: String, password: String) =
-        api.registerCustomer(RegisterRequest(name, email, phone, password))
+    suspend fun initCustomerRegister(name: String, phone: String, password: String) =
+        api.initCustomerRegister(RegisterInitRequest(name, phone, password))
+
+    suspend fun verifyCustomerRegister(phone: String, firebaseIdToken: String) =
+        api.verifyCustomerRegister(RegisterVerifyRequest(phone, firebaseIdToken))
+
+    suspend fun initResetPassword(phone: String) =
+        api.initResetPassword(ResetPasswordInitRequest(phone))
+
+    suspend fun verifyResetPassword(phone: String, firebaseIdToken: String, newPassword: String) =
+        api.verifyResetPassword(ResetPasswordVerifyRequest(phone, firebaseIdToken, newPassword))
+
+    suspend fun changeCustomerPassword(currentPassword: String, newPassword: String) =
+        api.changeCustomerPassword(ChangePasswordRequest(currentPassword, newPassword))
 
     suspend fun loginAdmin(email: String, password: String) =
         api.loginAdmin(LoginRequest(email, password))
@@ -65,4 +77,10 @@ class RemoteApiClient(tokenStore: TokenStore) {
     suspend fun createAddress(body: CreateAddressRequest) = api.createAddress(body)
     suspend fun setDefaultAddress(id: Int) = api.setDefaultAddress(id)
     suspend fun deleteAddress(id: Int) = api.deleteAddress(id)
+
+    suspend fun getPortalUsers() = api.getPortalUsers()
+    suspend fun createPortalUser(body: CreatePortalUserRequest) = api.createPortalUser(body)
+    suspend fun updatePortalUser(role: String, id: Int, body: UpdatePortalUserRequest) =
+        api.updatePortalUser(role, id, body)
+    suspend fun deletePortalUser(role: String, id: Int) = api.deletePortalUser(role, id)
 }

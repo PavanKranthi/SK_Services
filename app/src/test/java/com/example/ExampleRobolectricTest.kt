@@ -62,15 +62,24 @@ class ExampleRobolectricTest {
       composeTestRule.onNodeWithTag("portal_toggle_signup").assertExists().performScrollTo().performClick()
       composeTestRule.waitForIdle()
 
-      // Enter registration fields
+      // Enter registration fields (phone is the login identifier)
       composeTestRule.onNodeWithTag("signup_name_input").assertExists().performScrollTo().performTextInput("Pavan Kranthi")
-      composeTestRule.onNodeWithTag("signup_email_input").assertExists().performScrollTo().performTextInput("customer@gmail.com")
       composeTestRule.onNodeWithTag("signup_phone_input").assertExists().performScrollTo().performTextInput("9998887776")
       composeTestRule.onNodeWithTag("signup_password_input").assertExists().performScrollTo().performTextInput("Password123")
       composeTestRule.waitForIdle()
 
-      // Complete sign up and login
+      // Send OTP and move to verification screen
       composeTestRule.onNodeWithTag("signup_submit").assertExists().performScrollTo().performClick()
+      composeTestRule.waitForIdle()
+      mainDispatcherRule.advanceUntilIdle()
+      composeTestRule.waitForIdle()
+
+      // Offline mode uses fixed OTP 123456
+      composeTestRule.waitUntil(timeoutMillis = 3000) {
+        composeTestRule.onAllNodesWithTag("signup_otp_input").fetchSemanticsNodes().isNotEmpty()
+      }
+      composeTestRule.onNodeWithTag("signup_otp_input").assertExists().performScrollTo().performTextInput("123456")
+      composeTestRule.onNodeWithTag("signup_otp_submit").assertExists().performScrollTo().performClick()
       composeTestRule.waitForIdle()
       mainDispatcherRule.advanceUntilIdle()
       composeTestRule.waitForIdle()

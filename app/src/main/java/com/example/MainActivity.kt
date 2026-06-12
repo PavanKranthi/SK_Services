@@ -22,8 +22,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import com.example.auth.FirebasePhoneAuthClient
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,7 +100,10 @@ class MainActivity : ComponentActivity() {
                                     TechnicianDashboardScreen(viewModel = viewModel)
                                 }
                                 else -> {
-                                    WelcomeAuthPortal(viewModel = viewModel)
+                                    WelcomeAuthPortal(
+                                        viewModel = viewModel,
+                                        activity = this@MainActivity
+                                    )
                                 }
                             }
                         }
@@ -108,17 +115,23 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WelcomeAuthPortal(viewModel: AppViewModel) {
+fun WelcomeAuthPortal(viewModel: AppViewModel, activity: ComponentActivity) {
+    val phoneAuth = remember { FirebasePhoneAuthClient() }
+    val scope = rememberCoroutineScope()
     var isSignUpMode by remember { mutableStateOf(false) }
     var selectedAuthMode by remember { mutableStateOf("Customer") }
+    // form | signup_otp | reset_phone | reset_verify
+    var customerAuthStep by remember { mutableStateOf("form") }
+    var isSendingOtp by remember { mutableStateOf(false) }
 
     // Forms
     var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
+    var resetNewPassword by remember { mutableStateOf("") }
 
-    var loginEmail by remember { mutableStateOf("") }
+    var loginPhone by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
 
     var adminEmail by remember { mutableStateOf("") }
@@ -204,6 +217,7 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
                             .clickable {
                                 selectedAuthMode = "Customer"
                                 isSignUpMode = false
+                                customerAuthStep = "form"
                                 errorMessage = ""
                                 successMessage = ""
                             }
@@ -393,142 +407,386 @@ fun WelcomeAuthPortal(viewModel: AppViewModel) {
                     ) {
                         Text("Login as Technician", fontWeight = FontWeight.Bold, color = Color.White)
                     }
-                } else {
-                    if (isSignUpMode) {
-                        // CUSTOMER CHOOSE SIGN UP
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedTextField(
-                                value = name,
-                                onValueChange = { name = it },
-                                label = { Text("Full Name") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("signup_name_input")
-                            )
-                            OutlinedTextField(
-                                value = email,
-                                onValueChange = { email = it },
-                                label = { Text("Email Address") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("signup_email_input")
-                            )
-                            OutlinedTextField(
-                                value = phone,
-                                onValueChange = { phone = it },
-                                label = { Text("Phone Number") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("signup_phone_input")
-                            )
-                            OutlinedTextField(
-                                value = password,
-                                onValueChange = { password = it },
-                                label = { Text("Set Password") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("signup_password_input")
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Button(
-                                onClick = {
-                                    if (name.isBlank() || email.isBlank() || phone.isBlank() || password.isBlank()) {
-                                        errorMessage = "All registration fields are required."
-                                    } else {
-                                        viewModel.registerCustomer(name, email, phone, password) { success, msg ->
+                } else if (customerAuthStep == "signup_otp") {
+                    CustomerOtpStep(
+                        title = "Verify your phone",
+                        subtitle = "Enter the 6-digit OTP sent to +91 $phone",
+                        otpCode = otpCode,
+                        onOtpChange = { otpCode = it },
+                        isLoading = isSendingOtp,
+                        submitLabel = "Verify & Create Account",
+                        submitTag = "signup_otp_submit",
+                        onSubmit = {
+                            if (otpCode.length == 6) {
+                                isSendingOtp = true
+                                scope.launch {
+                                    try {
+                                        val token = if (viewModel.requiresFirebasePhoneAuth()) {
+                                            phoneAuth.verifyOtpAndGetIdToken(otpCode).getOrElse {
+                                                errorMessage = it.message ?: "OTP verification failed"
+                                                return@launch
+                                            }
+                                        } else {
+                                            otpCode
+                                        }
+                                        viewModel.verifyCustomerSignupWithFirebase(phone, token) { success, msg ->
                                             if (success) {
+                                                phoneAuth.signOutFirebase()
                                                 successMessage = msg
+                                                errorMessage = ""
                                             } else {
                                                 errorMessage = msg
                                             }
                                         }
+                                    } finally {
+                                        isSendingOtp = false
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag("signup_submit")
-                            ) {
-                                Text("Complete Sign Up", fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                errorMessage = "Please enter the 6-digit OTP."
                             }
-
-                            TextButton(
-                                onClick = { isSignUpMode = false },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Already a partner? Sign In here")
-                            }
+                        },
+                        onBack = {
+                            phoneAuth.clearPendingVerification()
+                            customerAuthStep = "form"
+                            otpCode = ""
+                            errorMessage = ""
+                            successMessage = ""
+                        },
+                        backLabel = "Back to sign up"
+                    )
+                } else if (customerAuthStep == "reset_phone") {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Reset password",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it },
+                            label = { Text("Registered phone number") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            modifier = Modifier.fillMaxWidth().testTag("reset_phone_input")
+                        )
+                        Button(
+                            onClick = {
+                                if (phone.isBlank()) {
+                                    errorMessage = "Enter your phone number."
+                                } else {
+                                    isSendingOtp = true
+                                    viewModel.initiateResetPassword(phone) { success, msg ->
+                                        if (!success) {
+                                            isSendingOtp = false
+                                            errorMessage = msg
+                                            return@initiateResetPassword
+                                        }
+                                        successMessage = msg
+                                        errorMessage = ""
+                                        if (viewModel.requiresFirebasePhoneAuth()) {
+                                            scope.launch {
+                                                phoneAuth.sendOtp(activity, phone.filter { it.isDigit() }.takeLast(10))
+                                                    .onSuccess { customerAuthStep = "reset_verify" }
+                                                    .onFailure { errorMessage = it.message ?: "Could not send OTP" }
+                                                isSendingOtp = false
+                                            }
+                                        } else {
+                                            customerAuthStep = "reset_verify"
+                                            isSendingOtp = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !isSendingOtp,
+                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("reset_send_otp")
+                        ) {
+                            Text(if (isSendingOtp) "Sending..." else "Send OTP", fontWeight = FontWeight.Bold)
                         }
-                    } else {
-                        // CUSTOMER STANDARD LOGIN
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        TextButton(onClick = { customerAuthStep = "form"; errorMessage = "" }) {
+                            Text("Back to sign in")
+                        }
+                    }
+                } else if (customerAuthStep == "reset_verify") {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Verify OTP & set new password",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedTextField(
-                                value = loginEmail,
-                                onValueChange = { loginEmail = it },
-                                label = { Text("Email Address") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("login_email_input")
-                            )
-                            OutlinedTextField(
-                                value = loginPassword,
-                                onValueChange = { loginPassword = it },
-                                label = { Text("Account Password") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("login_password_input")
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Button(
-                                onClick = {
-                                    if (loginEmail.isBlank() || loginPassword.isBlank()) {
-                                        errorMessage = "Please enter both Email and Password"
-                                    } else {
-                                        viewModel.loginCustomer(loginEmail, loginPassword) { success, msg ->
+                        )
+                        OutlinedTextField(
+                            value = otpCode,
+                            onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) otpCode = it },
+                            label = { Text("OTP Code") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            modifier = Modifier.fillMaxWidth().testTag("reset_otp_input")
+                        )
+                        OutlinedTextField(
+                            value = resetNewPassword,
+                            onValueChange = { resetNewPassword = it },
+                            label = { Text("New password") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("reset_new_password_input")
+                        )
+                        Button(
+                            onClick = {
+                                if (otpCode.length != 6 || resetNewPassword.length < 6) {
+                                    errorMessage = "Enter 6-digit OTP and a password (min 6 chars)."
+                                    return@Button
+                                }
+                                isSendingOtp = true
+                                scope.launch {
+                                    try {
+                                        val token = if (viewModel.requiresFirebasePhoneAuth()) {
+                                            phoneAuth.verifyOtpAndGetIdToken(otpCode).getOrElse {
+                                                errorMessage = it.message ?: "OTP verification failed"
+                                                return@launch
+                                            }
+                                        } else {
+                                            otpCode
+                                        }
+                                        viewModel.verifyResetPasswordWithFirebase(phone, token, resetNewPassword) { success, msg ->
                                             if (success) {
+                                                phoneAuth.signOutFirebase()
                                                 successMessage = msg
+                                                errorMessage = ""
                                             } else {
                                                 errorMessage = msg
                                             }
                                         }
+                                    } finally {
+                                        isSendingOtp = false
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag("login_submit")
-                            ) {
-                                Text("Verify & Sign In", fontWeight = FontWeight.Bold)
-                            }
+                                }
+                            },
+                            enabled = !isSendingOtp,
+                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("reset_verify_submit")
+                        ) {
+                            Text("Update password", fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { customerAuthStep = "reset_phone"; otpCode = ""; resetNewPassword = "" }) {
+                            Text("Back")
+                        }
+                    }
+                } else if (isSignUpMode) {
+                    // CUSTOMER SIGN UP (step 1: details + password)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Full Name") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("signup_name_input")
+                        )
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it },
+                            label = { Text("Phone Number") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("signup_phone_input")
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("Set Password") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("signup_password_input")
+                        )
 
-                            TextButton(
-                                onClick = { isSignUpMode = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("portal_toggle_signup")
-                            ) {
-                                Text(stringResource(R.string.auth_signup_prompt))
-                            }
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = {
+                                if (name.isBlank() || phone.isBlank() || password.isBlank()) {
+                                    errorMessage = "Name, phone and password are required."
+                                } else {
+                                    isSendingOtp = true
+                                    viewModel.initiateCustomerSignup(name, phone, password) { success, msg ->
+                                        if (!success) {
+                                            isSendingOtp = false
+                                            errorMessage = msg
+                                            return@initiateCustomerSignup
+                                        }
+                                        successMessage = msg
+                                        errorMessage = ""
+                                        otpCode = ""
+                                        val phone10 = phone.filter { it.isDigit() }.let {
+                                            if (it.length >= 10) it.takeLast(10) else it
+                                        }
+                                        if (viewModel.requiresFirebasePhoneAuth()) {
+                                            scope.launch {
+                                                phoneAuth.sendOtp(activity, phone10)
+                                                    .onSuccess { customerAuthStep = "signup_otp" }
+                                                    .onFailure { errorMessage = it.message ?: "Could not send OTP" }
+                                                isSendingOtp = false
+                                            }
+                                        } else {
+                                            customerAuthStep = "signup_otp"
+                                            isSendingOtp = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !isSendingOtp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("signup_submit")
+                        ) {
+                            Text(if (isSendingOtp) "Sending OTP..." else "Send OTP & Sign Up", fontWeight = FontWeight.Bold)
+                        }
+
+                        TextButton(
+                            onClick = { isSignUpMode = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Already a partner? Sign In here")
+                        }
+                    }
+                } else {
+                    // CUSTOMER SIGN IN (phone + password)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = loginPhone,
+                            onValueChange = { loginPhone = it },
+                            label = { Text("Phone Number") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_phone_input")
+                        )
+                        OutlinedTextField(
+                            value = loginPassword,
+                            onValueChange = { loginPassword = it },
+                            label = { Text("Account Password") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_password_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = {
+                                if (loginPhone.isBlank() || loginPassword.isBlank()) {
+                                    errorMessage = "Please enter both phone and password."
+                                } else {
+                                    viewModel.loginCustomer(loginPhone, loginPassword) { success, msg ->
+                                        if (success) {
+                                            successMessage = msg
+                                        } else {
+                                            errorMessage = msg
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("login_submit")
+                        ) {
+                            Text("Verify & Sign In", fontWeight = FontWeight.Bold)
+                        }
+
+                        TextButton(
+                            onClick = { isSignUpMode = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("portal_toggle_signup")
+                        ) {
+                            Text(stringResource(R.string.auth_signup_prompt))
+                        }
+                        TextButton(
+                            onClick = {
+                                phone = loginPhone
+                                customerAuthStep = "reset_phone"
+                                errorMessage = ""
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("login_forgot_password")
+                        ) {
+                            Text("Forgot password?")
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CustomerOtpStep(
+    title: String,
+    subtitle: String,
+    otpCode: String,
+    onOtpChange: (String) -> Unit,
+    isLoading: Boolean,
+    submitLabel: String,
+    submitTag: String,
+    onSubmit: () -> Unit,
+    onBack: () -> Unit,
+    backLabel: String
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+        OutlinedTextField(
+            value = otpCode,
+            onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) onOtpChange(it) },
+            label = { Text("OTP Code") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth().testTag("signup_otp_input")
+        )
+        Button(
+            onClick = onSubmit,
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag(submitTag)
+        ) {
+            Text(if (isLoading) "Verifying..." else submitLabel, fontWeight = FontWeight.Bold)
+        }
+        TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text(backLabel)
         }
     }
 }
