@@ -24,7 +24,16 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Create debug keystore
+      # Reuse the same debug keystore across builds so Firebase SHA fingerprints stay valid.
+      - name: Restore debug keystore cache
+        uses: actions/cache@v4
+        id: keystore-cache
+        with:
+          path: debug.keystore
+          key: sk-services-debug-keystore-v1
+
+      - name: Create debug keystore if missing
+        if: steps.keystore-cache.outputs.cache-hit != 'true'
         run: |
           keytool -genkeypair -v \
             -keystore debug.keystore \
@@ -35,6 +44,13 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Print SHA fingerprints (add to Firebase Android app)
+        run: |
+          echo "::group::Firebase SHA fingerprints"
+          keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey \
+            | grep -E "SHA1:|SHA256:"
+          echo "::endgroup::"
 
       - name: Write .env for API URL
         run: |
